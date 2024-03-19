@@ -1,6 +1,7 @@
 from typing import List, Optional, Union, Tuple
 
 import torch
+from torch.autograd.functional import hessian
 from torch import Tensor
 from torch.optim.optimizer import (Optimizer, ParamsT, _use_grad_for_differentiable, _get_value,
                         _stack_if_compiling, _dispatch_sqrt, _default_to_fused_or_foreach,
@@ -663,26 +664,43 @@ def _fused_adam(
 mse_loss = torch.nn.MSELoss()
 
 
-def _Newtons_algorithm(params: List[Tensor],
-    grads: List[Tensor],
-    exp_avgs: List[Tensor],
-    exp_avg_sqs: List[Tensor],
-    max_exp_avg_sqs: List[Tensor],
-    state_steps: List[Tensor],
-    grad_scale: Optional[Tensor],
-    found_inf: Optional[Tensor],
-    *,
-    amsgrad: bool,
-    has_complex: bool,  # Needed for consistency.
-    beta1: float,
-    beta2: float,
-    lr: Union[float, Tensor],
-    weight_decay: float,
-    eps: float,
-    maximize: bool,
-    capturable: bool,  # Needed for consistency.
-    differentiable: bool,):
+def hessian(
+    y_true:torch.tensor,
+    y_pred:torch.tensor,
+    mse_loss: torch.nn.MSELoss,
+    optimizer:torch.optim.optimizer
+)->torch.tensor:
+    loss = mse_loss(y_pred,y_true)
+    optimizer.zero_grad()
+    loss.backward.backward()
+    # optimizer.step()
+    #hessian = torch.autograd.functional.hessian(mse_loss, y_pred)
     
-    mse_loss()
+    return  loss
+
+
+# def _Newtons_algorithm(params: List[Tensor],
+#     grads: List[Tensor],     # list of gradients 
+#     exp_avgs: List[Tensor],    #list of expected tensor outputs (from prob theory)
+#     exp_avg_sqs: List[Tensor],   #list of expected sqrt tensor outputs (from prob theory)
+#     max_exp_avg_sqs: List[Tensor],   
+#     state_steps: List[Tensor],
+#     grad_scale: Optional[Tensor],
+#     found_inf: Optional[Tensor],   
+#     *,    
+#     amsgrad: bool,       # amsgrad (bool, optional): whether to use the AMSGrad variant of this algorithm from the paper `On the Convergence of Adam and Beyond`_ (default: False)
+#     has_complex: bool,  # Needed for consistency.
+#     beta1: float,       # coefficients used for computing running averages of gradient and its square
+#     beta2: float,
+#     lr: Union[float, Tensor],     #learning Rate
+#     weight_decay: float,        #used to fit points on a graph 
+#     eps: float,        # term added to the denominator to improve numerical stability
+#     maximize: bool,      
+#     capturable: bool,  # Needed for consistency.
+#     differentiable: bool,):   #self explanatory
     
-    return
+#     mse_loss()
+    
+#     return
+
+# 
