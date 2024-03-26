@@ -1,7 +1,6 @@
 from typing import List, Optional, Union, Tuple
 
 import torch
-from torch.autograd.functional import hessian
 from torch import Tensor
 from torch.optim.optimizer import (Optimizer, ParamsT, _use_grad_for_differentiable, _get_value,
                         _stack_if_compiling, _dispatch_sqrt, _default_to_fused_or_foreach,
@@ -664,43 +663,97 @@ def _fused_adam(
 mse_loss = torch.nn.MSELoss()
 
 
-def hessian(
-    y_true:torch.tensor,
-    y_pred:torch.tensor,
-    mse_loss: torch.nn.MSELoss,
-    optimizer:torch.optim.optimizer
+def _Newtons_algorithm(params: List[Tensor],
+    grads: List[Tensor],     # list of gradients 
+    exp_avgs: List[Tensor],    #list of expected tensor outputs (from prob theory)
+    exp_avg_sqs: List[Tensor],   #list of expected sqrt tensor outputs (from prob theory)
+    max_exp_avg_sqs: List[Tensor],   
+    state_steps: List[Tensor],
+    grad_scale: Optional[Tensor],
+    found_inf: Optional[Tensor],   
+    *,    
+    amsgrad: bool,       # amsgrad (bool, optional): whether to use the AMSGrad variant of this algorithm from the paper `On the Convergence of Adam and Beyond`_ (default: False)
+    has_complex: bool,  # Needed for consistency.
+    beta1: float,       # coefficients used for computing running averages of gradient and its square
+    beta2: float,
+    lr: Union[float, Tensor],     #learning Rate
+    weight_decay: float,        #used to fit points on a graph 
+    eps: float,        # term added to the denominator to improve numerical stability
+    maximize: bool,      
+    capturable: bool,  # Needed for consistency.
+    differentiable: bool,):   #self explanatory
+    
+    mse_loss()
+    
+    return
+
+ # https://pythonhow.com/what/what-does-double-star-asterisk-and-star-asterisk-do-for-parameters/#:~:text=In%20Python%2C%20the%20*%20and%20**,arguments%20when%20defining%20a%20function.&text=In%20this%20example%2C%20the%20*%20symbol,tuple%20and%20assigned%20to%20args.
+
+
+def train(
+    model:torch.nn.module,
+    x:torch.tensor, 
+    y:torch.tensor, 
+    f_tilde_tm1:torch.tensor, 
+    g_tilde_tm1:torch.tensor, 
+    h_tilde_tm1:torch.tensor, 
+    alpha_tm1:torch.tensor,
+    alpha:torch.float32=.1,
+    epsilon:torch.float32=10e-32
 )->torch.tensor:
-    loss = mse_loss(y_pred,y_true)
-    optimizer.zero_grad()
-    loss.backward.backward()
-    # optimizer.step()
-    #hessian = torch.autograd.functional.hessian(mse_loss, y_pred)
-    
-    return  loss
+    output = model(x)
+    ft = torch.nn.functional.mse_loss(output, y)
 
+    # First, compute gradients of loss w.r.t inputs
+    ft.backward(retain_graph=True)
+    g_t = x.grad
 
-# def _Newtons_algorithm(params: List[Tensor],
-#     grads: List[Tensor],     # list of gradients 
-#     exp_avgs: List[Tensor],    #list of expected tensor outputs (from prob theory)
-#     exp_avg_sqs: List[Tensor],   #list of expected sqrt tensor outputs (from prob theory)
-#     max_exp_avg_sqs: List[Tensor],   
-#     state_steps: List[Tensor],
-#     grad_scale: Optional[Tensor],
-#     found_inf: Optional[Tensor],   
-#     *,    
-#     amsgrad: bool,       # amsgrad (bool, optional): whether to use the AMSGrad variant of this algorithm from the paper `On the Convergence of Adam and Beyond`_ (default: False)
-#     has_complex: bool,  # Needed for consistency.
-#     beta1: float,       # coefficients used for computing running averages of gradient and its square
-#     beta2: float,
-#     lr: Union[float, Tensor],     #learning Rate
-#     weight_decay: float,        #used to fit points on a graph 
-#     eps: float,        # term added to the denominator to improve numerical stability
-#     maximize: bool,      
-#     capturable: bool,  # Needed for consistency.
-#     differentiable: bool,):   #self explanatory
+    # Compute the Hessian: second-order derivatives
+    hessian = []
+    for g in gradient.flatten():
+        model.zero_grad()
+        x.grad = None  # Reset gradients to zero
+        g.backward(retain_graph=True)
+        hessian.append(x.grad.flatten())
+    h_t = torch.stack(hessian).reshape(x.size(0), x.size(1), x.size(0), x.size(1))
     
-#     mse_loss()
     
-#     return
+    f_tilde_t_new = alpha*f_tilde_tm1 + (1 - alpha)*ft
+    g_tilde_t_new = alpha*g_tilde_tm1 + (1 - alpha)*g_t
+    h_tilde_t_new = alpha*h_tilde_tm1 + (1 - alpha)*h_t
 
-# 
+    alpha_t_new = alpha*alpha_tm1 + (1 - alpha)
+    u_t = f_tilde_t_new*g_tilde_t_new
+    eps_t = (alpha_t_new**2)*epsilon
+    
+    A_t = (1/(alpha_t_new**2))*torch.max(
+            eps_t, 
+            torch.norm(g_tilde_t_new,p=float('inf'))**2, 
+            torch.abs(f_tilde_t_new) @ torch.norm(h_tilde_t_new,p=float('inf')) 
+        ) 
+
+    for param in model.paramters():
+        model.fc1.weight.copy_(torch.tensor([[0.2, 0.3]], requires_grad=False))
+        model.fc1.bias.copy_(torch.tensor([2], requires_grad=False))  
+        model.output.weight.copy_(torch.tensor([[1.5, 2.5]], requires_grad=False))
+        model.output.bias.copy_(torch.tensor([3], requires_grad=False))
+    # f_tilde_t_new = torch.add(torch.multiply(alpha, f_tilde_tm1),torch.multiply(1-alpha, ft))
+    # g_tilde_t_new = torch.add(torch.multiply(alpha, g_tilde_tm1),torch.multiply(1-alpha, g_t))
+    
+    # h_tilde_t_new = torch.add(torch.multiply(alpha, h_tilde_tm1),torch.multiply(1-alpha, h_t))
+
+    # alpha_t_new = alpha*alpha_tm1+(1-alpha)
+    
+    # u_t = torch.multiply(f_tilde_t_new,g_tilde_t_new)
+    # eps_t = (alpha_t_new**2)*epsilon
+    
+    # A_t = (1/(alpha_t_new**2))*torch.max(eps_t, torch.pow(torch.norm(g_tilde_t_new), 2), torch.tensordot(torch.norm(f_tilde_t_new), torch.norm(h_tilde_t_new)))
+    # # Subtract the gradient scaled by the learning rate
+    # for var in model.trainable_variables:
+    #     # Currently w is in spot 1,1 and bias is in spot 0,0
+    #     # Need to figure out how to assign and get slots (w/o using Optimizerv2)
+    #     # Might need some work
+    #     model.w.assign_sub(u_t[1,1]/A_t)
+    #     model.b.assign_sub(u_t[0,0]/A_t)
+        
+    return f_tilde_t_new, g_tilde_t_new, h_tilde_t_new, alpha_t_new
